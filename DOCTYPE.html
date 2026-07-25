@@ -1,0 +1,684 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>SlideReels</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  :root {
+    --bg: #000;
+    --accent: #fe2c55;
+    --accent2: #833ab4;
+    --text: #fff;
+    --muted: #a8a8a8;
+    --card: #16181c;
+  }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    overflow: hidden;
+    height: 100vh;
+    width: 100vw;
+  }
+
+  /* ---------- Upload / Home screen ---------- */
+  #home {
+    height: 100vh; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 24px;
+    background: radial-gradient(circle at 30% 20%, #833ab4 0%, transparent 40%),
+                radial-gradient(circle at 70% 80%, #fe2c55 0%, transparent 40%), #000;
+    padding: 24px; text-align: center;
+  }
+  #home h1 {
+    font-size: 42px; font-weight: 800; letter-spacing: -1px;
+    background: linear-gradient(45deg, #fe2c55, #833ab4, #fcb045);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  #home p { color: var(--muted); max-width: 340px; line-height: 1.5; }
+  .btn {
+    background: linear-gradient(45deg, var(--accent), var(--accent2));
+    color: #fff; border: none; padding: 14px 28px; border-radius: 30px;
+    font-size: 16px; font-weight: 700; cursor: pointer; transition: transform .15s;
+  }
+  .btn:active { transform: scale(.95); }
+  .btn.ghost { background: rgba(255,255,255,.12); }
+  #fileInput { display: none; }
+  .home-actions { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; }
+  .loader { display:none; color: var(--muted); }
+
+  /* ---------- Reels viewer ---------- */
+  #viewer { display: none; height: 100vh; position: relative; }
+  #reelsContainer {
+    height: 100vh; overflow-y: scroll; scroll-snap-type: y mandatory;
+    scroll-behavior: smooth;
+  }
+  #reelsContainer::-webkit-scrollbar { display: none; }
+  .reel {
+    height: 100vh; scroll-snap-align: start; position: relative;
+    display: flex; align-items: center; justify-content: center;
+    background: #000; overflow: hidden;
+  }
+  .reel-canvas-wrap {
+    position: relative; max-width: 100%; max-height: 100%;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .reel canvas {
+    max-width: 100vw; max-height: 100vh; object-fit: contain;
+    box-shadow: 0 0 40px rgba(0,0,0,.6);
+  }
+  .reel-index {
+    position: absolute; top: 60px; left: 16px; background: rgba(0,0,0,.5);
+    padding: 4px 12px; border-radius: 20px; font-size: 13px; z-index: 5;
+  }
+
+  /* ---------- Right action rail ---------- */
+  .action-rail {
+    position: absolute; right: 12px; bottom: 120px; z-index: 10;
+    display: flex; flex-direction: column; gap: 22px; align-items: center;
+  }
+  .action-btn {
+    background: none; border: none; color: #fff; cursor: pointer;
+    display: flex; flex-direction: column; align-items: center; gap: 4px;
+    font-size: 12px; transition: transform .15s;
+  }
+  .action-btn:active { transform: scale(1.2); }
+  .action-btn .icon { font-size: 30px; line-height: 1; }
+  .action-btn.liked .icon { animation: pop .3s; }
+  .action-btn.liked { color: var(--accent); }
+  @keyframes pop { 0%{transform:scale(1)} 50%{transform:scale(1.4)} 100%{transform:scale(1)} }
+
+  /* ---------- Bottom controls (audio) ---------- */
+  .reel-bottom {
+    position: absolute; bottom: 24px; left: 16px; right: 80px; z-index: 10;
+    display: flex; flex-direction: column; gap: 10px;
+  }
+  .audio-controls { display: flex; gap: 8px; flex-wrap: wrap; }
+  .mini-btn {
+    background: rgba(255,255,255,.15); backdrop-filter: blur(10px);
+    border: 1px solid rgba(255,255,255,.2); color:#fff; padding: 8px 14px;
+    border-radius: 20px; font-size: 13px; cursor: pointer; display:flex;
+    align-items:center; gap:6px;
+  }
+  .mini-btn.active { background: var(--accent); border-color: var(--accent); }
+  .mini-btn.rec { background: #ff1744; animation: blink 1s infinite; }
+  @keyframes blink { 50%{opacity:.5} }
+  .audio-tag {
+    font-size: 12px; color: var(--muted); display:flex; align-items:center; gap:6px;
+  }
+
+  /* ---------- Magnifier ---------- */
+  .magnifier {
+    position: absolute; width: 180px; height: 180px; border-radius: 50%;
+    border: 3px solid #fff; box-shadow: 0 0 20px rgba(0,0,0,.6);
+    pointer-events: none; display: none; z-index: 50;
+    background-repeat: no-repeat; overflow: hidden;
+  }
+
+  /* ---------- Comment sheet ---------- */
+  .sheet-overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,.5); z-index: 100;
+    display: none;
+  }
+  .sheet {
+    position: fixed; bottom: 0; left: 0; right: 0; max-height: 70vh;
+    background: var(--card); border-radius: 20px 20px 0 0; z-index: 101;
+    transform: translateY(100%); transition: transform .3s; display: flex;
+    flex-direction: column; padding: 16px;
+  }
+  .sheet.open { transform: translateY(0); }
+  .sheet h3 { text-align: center; margin-bottom: 12px; font-size: 15px; }
+  .comment-list { overflow-y: auto; flex: 1; display:flex; flex-direction:column; gap:12px; padding-bottom:8px;}
+  .comment { display: flex; gap: 10px; align-items: flex-start; }
+  .avatar {
+    width: 34px; height: 34px; border-radius: 50%; flex-shrink: 0;
+    background: linear-gradient(45deg, var(--accent), var(--accent2));
+    display:flex; align-items:center; justify-content:center; font-weight:700; font-size:14px;
+  }
+  .comment-body { font-size: 14px; }
+  .comment-body .name { font-weight: 700; font-size: 13px; }
+  .comment-body .text { color: #ddd; }
+  .comment-input {
+    display: flex; gap: 8px; margin-top: 10px; padding-top: 10px;
+    border-top: 1px solid rgba(255,255,255,.1);
+  }
+  .comment-input input {
+    flex: 1; background: rgba(255,255,255,.1); border: none; color:#fff;
+    padding: 12px 16px; border-radius: 20px; outline: none;
+  }
+  .comment-input button {
+    background: none; border: none; color: var(--accent); font-weight: 700; cursor: pointer;
+  }
+  .empty { text-align:center; color: var(--muted); padding: 20px; }
+
+  /* ---------- Top bar ---------- */
+  .topbar {
+    position: absolute; top: 0; left: 0; right: 0; z-index: 20;
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 16px; background: linear-gradient(#000a, transparent);
+  }
+  .topbar .title { font-weight: 800; font-size: 18px; }
+  .icon-btn {
+    background: rgba(255,255,255,.12); border:none; color:#fff; width:38px; height:38px;
+    border-radius: 50%; font-size: 18px; cursor:pointer; display:flex;
+    align-items:center; justify-content:center;
+  }
+  .icon-btn.active { background: var(--accent); }
+
+  /* ---------- Share modal ---------- */
+  .modal-overlay {
+    position: fixed; inset:0; background: rgba(0,0,0,.7); z-index: 200;
+    display:none; align-items:center; justify-content:center; padding: 20px;
+  }
+  .modal {
+    background: var(--card); border-radius: 18px; padding: 24px; width: 100%;
+    max-width: 380px; display:flex; flex-direction:column; gap:14px;
+  }
+  .modal h3 { font-size: 18px; }
+  .modal p { color: var(--muted); font-size: 14px; line-height:1.5; }
+  .share-link {
+    background: rgba(255,255,255,.08); padding: 12px; border-radius: 10px;
+    font-size: 12px; word-break: break-all; color: #9ecbff; max-height: 100px; overflow:auto;
+  }
+  .classmate-row { display:flex; gap:8px; }
+  .classmate-row input {
+    flex:1; background: rgba(255,255,255,.1); border:none; color:#fff;
+    padding: 10px 14px; border-radius: 10px; outline:none;
+  }
+  .chip-wrap { display:flex; flex-wrap:wrap; gap:8px; }
+  .chip {
+    background: rgba(131,58,180,.3); border:1px solid var(--accent2);
+    padding: 6px 12px; border-radius: 20px; font-size: 13px; display:flex; gap:6px; align-items:center;
+  }
+  .chip span { cursor:pointer; opacity:.7; }
+  .toast {
+    position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%);
+    background: #fff; color:#000; padding: 12px 24px; border-radius: 30px;
+    font-weight:600; z-index: 500; opacity:0; transition: opacity .3s; pointer-events:none;
+    font-size: 14px;
+  }
+  .toast.show { opacity: 1; }
+  audio { display:none; }
+</style>
+</head>
+<body>
+
+<!-- ============ HOME ============ -->
+<div id="home">
+  <h1>SlideReels</h1>
+  <p>Turn your class slides into swipeable reels. Add voiceovers, music, like &amp; comment, and share with classmates.</p>
+  <div class="home-actions">
+    <button class="btn" onclick="document.getElementById('fileInput').click()">📄 Upload PDF Slides</button>
+    <button class="btn ghost" id="loadShared" onclick="loadSharedDeck()">🔗 Open Shared Deck</button>
+  </div>
+  <input type="file" id="fileInput" accept="application/pdf">
+  <div class="loader" id="loader">Rendering your reels… ⏳</div>
+</div>
+
+<!-- ============ VIEWER ============ -->
+<div id="viewer">
+  <div class="topbar">
+    <div class="title">🎬 <span id="deckName">My Reels</span></div>
+    <div style="display:flex; gap:10px;">
+      <button class="icon-btn" id="magBtn" title="Magnifier" onclick="toggleMagnifier()">🔍</button>
+      <button class="icon-btn" title="Share" onclick="openShare()">📤</button>
+      <button class="icon-btn" title="Home" onclick="goHome()">✕</button>
+    </div>
+  </div>
+  <div id="reelsContainer"></div>
+</div>
+
+<!-- ============ COMMENT SHEET ============ -->
+<div class="sheet-overlay" id="sheetOverlay" onclick="closeComments()"></div>
+<div class="sheet" id="commentSheet">
+  <h3 id="commentTitle">Comments</h3>
+  <div class="comment-list" id="commentList"></div>
+  <div class="comment-input">
+    <input type="text" id="commentText" placeholder="Add a comment…" onkeydown="if(event.key==='Enter')postComment()">
+    <button onclick="postComment()">Post</button>
+  </div>
+</div>
+
+<!-- ============ SHARE MODAL ============ -->
+<div class="modal-overlay" id="shareModal">
+  <div class="modal">
+    <h3>📤 Share &amp; Collaborate</h3>
+    <p>Add classmates so they can view, like, and comment on this deck.</p>
+    <div class="classmate-row">
+      <input type="text" id="classmateInput" placeholder="Classmate name…" onkeydown="if(event.key==='Enter')addClassmate()">
+      <button class="btn" style="padding:10px 18px" onclick="addClassmate()">Add</button>
+    </div>
+    <div class="chip-wrap" id="chipWrap"></div>
+    <p>Shareable link (copy &amp; send to classmates):</p>
+    <div class="share-link" id="shareLink">Generating…</div>
+    <div style="display:flex; gap:10px;">
+      <button class="btn" style="flex:1" onclick="copyLink()">📋 Copy Link</button>
+      <button class="btn ghost" style="flex:1" onclick="closeShare()">Done</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+// ---------- Global state ----------
+let deck = {
+  name: 'My Reels',
+  pages: [],          // { canvas, dataUrl }
+  reelData: [],       // { likes, liked, comments:[], voiceover:null, music:null }
+  classmates: []
+};
+let currentReel = 0;
+let magnifierOn = false;
+let currentUser = 'You';
+
+// ================= PDF UPLOAD =================
+document.getElementById('fileInput').addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  document.getElementById('loader').style.display = 'block';
+  deck.name = file.name.replace(/\.pdf$/i, '');
+  const buf = await file.arrayBuffer();
+  const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+  deck.pages = [];
+  deck.reelData = [];
+  for (let i = 1; i <= pdf.numPages; i++) {
+    const page = await pdf.getPage(i);
+    const scale = 2.2; // high-res so magnifier is crisp
+    const viewport = page.getViewport({ scale });
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    canvas.width = viewport.width;
+    canvas.height = viewport.height;
+    await page.render({ canvasContext: ctx, viewport }).promise;
+    deck.pages.push({ dataUrl: canvas.toDataURL('image/jpeg', 0.9), w: canvas.width, h: canvas.height });
+    deck.reelData.push({ likes: 0, liked: false, comments: [], voiceover: null, music: null, musicName: '' });
+  }
+  document.getElementById('loader').style.display = 'none';
+  startViewer();
+});
+
+// ================= BUILD REELS =================
+function startViewer() {
+  document.getElementById('home').style.display = 'none';
+  document.getElementById('viewer').style.display = 'block';
+  document.getElementById('deckName').textContent = deck.name;
+  const container = document.getElementById('reelsContainer');
+  container.innerHTML = '';
+
+  deck.pages.forEach((pg, idx) => {
+    const reel = document.createElement('div');
+    reel.className = 'reel';
+    reel.dataset.idx = idx;
+
+    // canvas image
+    const wrap = document.createElement('div');
+    wrap.className = 'reel-canvas-wrap';
+    const img = document.createElement('img');
+    img.src = pg.dataUrl;
+    img.style.maxWidth = '100vw';
+    img.style.maxHeight = '100vh';
+    img.className = 'reel-img';
+    img.dataset.idx = idx;
+    wrap.appendChild(img);
+
+    // magnifier lens
+    const mag = document.createElement('div');
+    mag.className = 'magnifier';
+    mag.id = 'mag-' + idx;
+    wrap.appendChild(mag);
+
+    reel.appendChild(wrap);
+
+    // index badge
+    const badge = document.createElement('div');
+    badge.className = 'reel-index';
+    badge.textContent = `Slide ${idx + 1} / ${deck.pages.length}`;
+    reel.appendChild(badge);
+
+    // action rail
+    const rail = document.createElement('div');
+    rail.className = 'action-rail';
+    rail.innerHTML = `
+      <button class="action-btn like-btn" data-idx="${idx}" onclick="toggleLike(${idx})">
+        <span class="icon">🤍</span>
+        <span class="like-count">0</span>
+      </button>
+      <button class="action-btn" onclick="openComments(${idx})">
+        <span class="icon">💬</span>
+        <span class="cmt-count">0</span>
+      </button>
+      <button class="action-btn" onclick="openShare()">
+        <span class="icon">📤</span>
+        <span>Share</span>
+      </button>
+      <button class="action-btn" onclick="toggleMagnifier()">
+        <span class="icon">🔍</span>
+        <span>Zoom</span>
+      </button>
+    `;
+    reel.appendChild(rail);
+
+    // bottom audio controls
+    const bottom = document.createElement('div');
+    bottom.className = 'reel-bottom';
+    bottom.innerHTML = `
+      <div class="audio-tag" id="audioTag-${idx}">🎵 No music · 🎙️ No voiceover</div>
+      <div class="audio-controls">
+        <button class="mini-btn" id="recBtn-${idx}" onclick="toggleRecord(${idx})">🎙️ Record voiceover</button>
+        <button class="mini-btn" id="playVoBtn-${idx}" onclick="playVoiceover(${idx})" style="display:none">▶️ Play VO</button>
+        <button class="mini-btn" onclick="document.getElementById('musicInput-${idx}').click()">🎵 Add music</button>
+        <button class="mini-btn" id="playMusicBtn-${idx}" onclick="toggleMusic(${idx})" style="display:none">▶️ Music</button>
+        <input type="file" id="musicInput-${idx}" accept="audio/*" style="display:none" onchange="addMusic(${idx}, this)">
+      </div>
+    `;
+    reel.appendChild(bottom);
+
+    // hidden audio elements
+    const voAudio = document.createElement('audio'); voAudio.id = 'voAudio-' + idx;
+    const mAudio = document.createElement('audio'); mAudio.id = 'mAudio-' + idx; mAudio.loop = true;
+    reel.appendChild(voAudio); reel.appendChild(mAudio);
+
+    // magnifier interactions
+    img.addEventListener('mousemove', (e) => moveMagnifier(e, idx));
+    img.addEventListener('touchmove', (e) => moveMagnifier(e, idx), {passive:false});
+    img.addEventListener('mouseleave', () => hideMagnifier(idx));
+    img.addEventListener('touchend', () => hideMagnifier(idx));
+
+    // double-tap to like
+    let lastTap = 0;
+    img.addEventListener('click', () => {
+      const now = Date.now();
+      if (now - lastTap < 300) toggleLike(idx, true);
+      lastTap = now;
+    });
+
+    container.appendChild(reel);
+  });
+
+  updateAllBadges();
+  observeReels();
+}
+
+// Auto-pause audio of reels scrolled away, track current reel
+function observeReels() {
+  const obs = new IntersectionObserver((entries) => {
+    entries.forEach(en => {
+      const idx = +en.target.dataset.idx;
+      if (en.isIntersecting) {
+        currentReel = idx;
+      } else {
+        // pause audio when leaving
+        const m = document.getElementById('mAudio-'+idx);
+        const v = document.getElementById('voAudio-'+idx);
+        if (m) m.pause();
+        if (v) v.pause();
+      }
+    });
+  }, { threshold: 0.6 });
+  document.querySelectorAll('.reel').forEach(r => obs.observe(r));
+}
+
+// ================= LIKES =================
+function toggleLike(idx, forceOn=false) {
+  const d = deck.reelData[idx];
+  if (forceOn && d.liked) return; // double-tap only adds
+  d.liked = !d.liked;
+  d.likes += d.liked ? 1 : -1;
+  const btn = document.querySelector(`.like-btn[data-idx="${idx}"]`);
+  btn.querySelector('.icon').textContent = d.liked ? '❤️' : '🤍';
+  btn.querySelector('.like-count').textContent = d.likes;
+  btn.classList.toggle('liked', d.liked);
+  saveDeck();
+}
+
+// ================= COMMENTS =================
+let activeCommentReel = 0;
+function openComments(idx) {
+  activeCommentReel = idx;
+  document.getElementById('commentTitle').textContent = `Comments · Slide ${idx+1}`;
+  renderComments();
+  document.getElementById('sheetOverlay').style.display = 'block';
+  document.getElementById('commentSheet').classList.add('open');
+}
+function closeComments() {
+  document.getElementById('sheetOverlay').style.display = 'none';
+  document.getElementById('commentSheet').classList.remove('open');
+}
+function renderComments() {
+  const list = document.getElementById('commentList');
+  const comments = deck.reelData[activeCommentReel].comments;
+  if (!comments.length) {
+    list.innerHTML = '<div class="empty">No comments yet. Be the first! 💬</div>';
+    return;
+  }
+  list.innerHTML = comments.map(c => `
+    <div class="comment">
+      <div class="avatar">${c.user[0].toUpperCase()}</div>
+      <div class="comment-body">
+        <div class="name">${escapeHtml(c.user)}</div>
+        <div class="text">${escapeHtml(c.text)}</div>
+      </div>
+    </div>`).join('');
+}
+function postComment() {
+  const input = document.getElementById('commentText');
+  const txt = input.value.trim();
+  if (!txt) return;
+  deck.reelData[activeCommentReel].comments.push({ user: currentUser, text: txt });
+  input.value = '';
+  renderComments();
+  updateAllBadges();
+  saveDeck();
+}
+
+// ================= VOICEOVER (mic recording) =================
+let mediaRecorder = null, recChunks = [], recordingReel = -1;
+async function toggleRecord(idx) {
+  const btn = document.getElementById('recBtn-'+idx);
+  if (recordingReel === idx) {
+    mediaRecorder.stop();
+    return;
+  }
+  if (recordingReel !== -1) { showToast('Finish current recording first'); return; }
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    mediaRecorder = new MediaRecorder(stream);
+    recChunks = [];
+    mediaRecorder.ondataavailable = e => recChunks.push(e.data);
+    mediaRecorder.onstop = () => {
+      const blob = new Blob(recChunks, { type: 'audio/webm' });
+      const url = URL.createObjectURL(blob);
+      deck.reelData[idx].voiceover = url;
+      document.getElementById('voAudio-'+idx).src = url;
+      document.getElementById('playVoBtn-'+idx).style.display = 'flex';
+      btn.textContent = '🎙️ Re-record'; btn.classList.remove('rec');
+      recordingReel = -1;
+      stream.getTracks().forEach(t => t.stop());
+      updateAudioTag(idx);
+      showToast('Voiceover saved 🎙️');
+    };
+    mediaRecorder.start();
+    recordingReel = idx;
+    btn.textContent = '⏹️ Stop'; btn.classList.add('rec');
+  } catch (err) {
+    showToast('Mic access denied 😕');
+  }
+}
+function playVoiceover(idx) {
+  const a = document.getElementById('voAudio-'+idx);
+  if (a.paused) { a.currentTime = 0; a.play(); } else { a.pause(); }
+}
+
+// ================= BACKGROUND MUSIC =================
+function addMusic(idx, input) {
+  const file = input.files[0];
+  if (!file) return;
+  const url = URL.createObjectURL(file);
+  deck.reelData[idx].music = url;
+  deck.reelData[idx].musicName = file.name;
+  document.getElementById('mAudio-'+idx).src = url;
+  document.getElementById('playMusicBtn-'+idx).style.display = 'flex';
+  updateAudioTag(idx);
+  showToast('Music added 🎵');
+}
+function toggleMusic(idx) {
+  const a = document.getElementById('mAudio-'+idx);
+  const btn = document.getElementById('playMusicBtn-'+idx);
+  if (a.paused) { a.volume = 0.5; a.play(); btn.textContent = '⏸️ Music'; btn.classList.add('active'); }
+  else { a.pause(); btn.textContent = '▶️ Music'; btn.classList.remove('active'); }
+}
+function updateAudioTag(idx) {
+  const d = deck.reelData[idx];
+  const music = d.music ? `🎵 ${d.musicName.slice(0,18)}` : '🎵 No music';
+  const vo = d.voiceover ? '🎙️ Voiceover ready' : '🎙️ No voiceover';
+  document.getElementById('audioTag-'+idx).textContent = `${music} · ${vo}`;
+}
+
+// ================= MAGNIFIER =================
+function toggleMagnifier() {
+  magnifierOn = !magnifierOn;
+  document.getElementById('magBtn').classList.toggle('active', magnifierOn);
+  showToast(magnifierOn ? 'Magnifier ON — hover/drag over slide 🔍' : 'Magnifier OFF');
+  if (!magnifierOn) document.querySelectorAll('.magnifier').forEach(m => m.style.display='none');
+}
+function moveMagnifier(e, idx) {
+  if (!magnifierOn) return;
+  e.preventDefault();
+  const img = e.target;
+  const mag = document.getElementById('mag-'+idx);
+  const rect = img.getBoundingClientRect();
+  const point = e.touches ? e.touches[0] : e;
+  const x = point.clientX - rect.left;
+  const y = point.clientY - rect.top;
+  if (x < 0 || y < 0 || x > rect.width || y > rect.height) { mag.style.display='none'; return; }
+
+  const zoom = 2.5;
+  const lensSize = 180;
+  mag.style.display = 'block';
+  mag.style.backgroundImage = `url(${img.src})`;
+  mag.style.backgroundSize = `${rect.width * zoom}px ${rect.height * zoom}px`;
+  // position lens centered on cursor (relative to wrap)
+  const wrapRect = img.parentElement.getBoundingClientRect();
+  mag.style.left = (point.clientX - wrapRect.left - lensSize/2) + 'px';
+  mag.style.top = (point.clientY - wrapRect.top - lensSize/2) + 'px';
+  mag.style.backgroundPosition = `-${x*zoom - lensSize/2}px -${y*zoom - lensSize/2}px`;
+}
+function hideMagnifier(idx) {
+  document.getElementById('mag-'+idx).style.display = 'none';
+}
+
+// ================= SHARE / COLLAB =================
+function openShare() {
+  renderChips();
+  document.getElementById('shareModal').style.display = 'flex';
+  generateShareLink();
+}
+function closeShare() { document.getElementById('shareModal').style.display = 'none'; }
+function addClassmate() {
+  const input = document.getElementById('classmateInput');
+  const name = input.value.trim();
+  if (!name) return;
+  if (!deck.classmates.includes(name)) deck.classmates.push(name);
+  input.value = '';
+  renderChips();
+  saveDeck();
+  showToast(`${name} can now collaborate 🤝`);
+}
+function renderChips() {
+  const wrap = document.getElementById('chipWrap');
+  wrap.innerHTML = deck.classmates.map((c,i) =>
+    `<div class="chip">👤 ${escapeHtml(c)} <span onclick="removeClassmate(${i})">✕</span></div>`
+  ).join('') || '<span style="color:#666;font-size:13px">No classmates added yet</span>';
+}
+function removeClassmate(i) { deck.classmates.splice(i,1); renderChips(); saveDeck(); }
+
+function generateShareLink() {
+  // Save a lightweight shareable version to localStorage and build a link
+  const id = 'deck_' + (deck.id || (deck.id = Date.now().toString(36)));
+  saveDeck();
+  const link = `${location.origin}${location.pathname}?deck=${id}`;
+  document.getElementById('shareLink').textContent = link;
+  return link;
+}
+function copyLink() {
+  const link = document.getElementById('shareLink').textContent;
+  navigator.clipboard.writeText(link).then(()=>showToast('Link copied! 📋'))
+    .catch(()=>showToast('Copy failed — select manually'));
+}
+
+// ================= PERSISTENCE (local, for demo collab) =================
+function saveDeck() {
+  if (!deck.id) deck.id = Date.now().toString(36);
+  const save = {
+    id: deck.id, name: deck.name, pages: deck.pages,
+    reelData: deck.reelData.map(r => ({
+      likes: r.likes, liked: r.liked, comments: r.comments,
+      musicName: r.musicName || ''   // note: audio blobs aren't persisted across devices
+    })),
+    classmates: deck.classmates
+  };
+  try { localStorage.setItem('deck_'+deck.id, JSON.stringify(save)); } catch(e){ /* quota */ }
+}
+function loadSharedDeck() {
+  const id = prompt('Paste the shared deck ID or link:');
+  if (!id) return;
+  const key = id.includes('deck=') ? 'deck_' + id.split('deck=')[1].trim() : (id.startsWith('deck_')? id : 'deck_'+id);
+  const raw = localStorage.getItem(key);
+  if (!raw) { showToast('Deck not found on this device 😕'); return; }
+  loadDeckFromData(JSON.parse(raw));
+}
+function loadDeckFromData(data) {
+  deck = {
+    id: data.id, name: data.name, pages: data.pages,
+    reelData: data.reelData.map(r => ({ ...r, voiceover:null, music:null })),
+    classmates: data.classmates || []
+  };
+  startViewer();
+  // restore likes/comments UI
+  deck.reelData.forEach((d,i)=>{
+    const btn = document.querySelector(`.like-btn[data-idx="${i}"]`);
+    if (btn){ btn.querySelector('.like-count').textContent = d.likes;
+      if(d.liked){ btn.querySelector('.icon').textContent='❤️'; btn.classList.add('liked'); } }
+  });
+  updateAllBadges();
+  showToast('Shared deck loaded 🎉');
+}
+
+// ================= HELPERS =================
+function updateAllBadges() {
+  deck.reelData.forEach((d, i) => {
+    const cmt = document.querySelector(`.reel[data-idx="${i}"] .cmt-count`);
+    const like = document.querySelector(`.like-btn[data-idx="${i}"] .like-count`);
+    if (cmt) cmt.textContent = d.comments.length;
+    if (like) like.textContent = d.likes;
+  });
+}
+function goHome() {
+  document.querySelectorAll('audio').forEach(a=>a.pause());
+  document.getElementById('viewer').style.display = 'none';
+  document.getElementById('home').style.display = 'flex';
+}
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  clearTimeout(window._tt); window._tt = setTimeout(()=>t.classList.remove('show'), 2200);
+}
+function escapeHtml(s){ return s.replace(/[&<>"']/g, m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
+
+// auto-load if ?deck= present
+window.addEventListener('load', () => {
+  const params = new URLSearchParams(location.search);
+  const d = params.get('deck');
+  if (d) {
+    const raw = localStorage.getItem('deck_'+d) || localStorage.getItem(d);
+    if (raw) loadDeckFromData(JSON.parse(raw));
+  }
+});
+</script>
+</body>
+</html>
